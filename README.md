@@ -1,298 +1,173 @@
-# Vivado MCP Server
+# Vivado MCP: Claude Code로 Vivado 제어하기 (Windows)
 
-A Model Context Protocol (MCP) server that enables AI assistants like Claude to directly interact with AMD/Xilinx Vivado FPGA development tools.
+Claude Code가 AMD Vivado를 직접 실행하고 제어하게 해 주는 MCP 서버입니다.
+"합성 돌려줘", "타이밍 만족했어?", "시뮬레이션 1us 돌리고 신호 값 보여줘"처럼 말로 요청하면
+Claude가 Vivado TCL 명령을 대신 실행합니다.
 
-## Features
+> 원본 프로젝트: [coreyhahn/vivado_mcp](https://github.com/coreyhahn/vivado_mcp)
+> (Windows 지원: [newtonsart/vivado_mcp](https://github.com/newtonsart/vivado_mcp))
+> 원본 영문 문서: [README.en.md](README.en.md)
 
-- **Session Management**: Start/stop persistent Vivado TCL sessions (avoids 30s startup per command)
-- **Project Management**: Open/close Vivado projects (.xpr files)
-- **Design Flow**: Run synthesis, implementation, and bitstream generation
-- **Reports & Analysis**: Get timing summaries, utilization reports, and design analysis
-- **Design Queries**: Explore hierarchy, ports, nets, and cells
-- **Simulation**: Control Vivado's integrated simulator (xsim)
-- **Raw TCL**: Execute arbitrary Vivado TCL commands for advanced operations
+---
 
-## Platform Support
+## 0. 준비물
 
-| Platform | Status |
-|----------|--------|
-| Linux / macOS | ✅ Fully supported |
-| Windows 10/11 | ✅ Fully supported (requires `pywinpty`) |
+| 항목 | 확인 방법 |
+|------|-----------|
+| Windows 10/11 | |
+| AMD Vivado (2023.2 이상, 실습실 기준 2026.1) | 설치 폴더에 `Vivado\bin\vivado.bat`가 있어야 함 |
+| Python 3.10 이상 | PowerShell에서 `python --version` |
+| Git | `git --version` |
+| Claude Code (로그인 완료) | `claude --version` |
 
-## Requirements
+Vivado 기본 설치 경로는 `C:\AMDDesignTools\2026.1\Vivado\bin`이라고 가정합니다.
+다른 곳에 설치했다면 아래 명령의 경로를 **본인 경로로 바꿔서** 입력하세요.
 
-- Python 3.10+
-- AMD/Xilinx Vivado installed (tested with 2023.2+)
-- Vivado must be in your PATH, or specify the full path when starting a session
-- **Windows only**: `pywinpty` — install with `pip install pywinpty`
+---
 
-## Installation
+## 1. 빠른 설치 (스크립트)
 
-### From GitHub
+PowerShell을 열고 아래를 순서대로 실행합니다.
 
-```bash
-git clone https://github.com/coreyhahn/vivado_mcp.git
+```powershell
+cd C:\
+git clone https://github.com/binghin2/Vivado_mcp_student.git vivado_mcp
+cd vivado_mcp
+powershell -ExecutionPolicy Bypass -File .\setup_windows.ps1
+```
+
+Vivado를 다른 경로에 설치했다면:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\setup_windows.ps1 -VivadoBin "D:\Xilinx\Vivado\2025.2\bin"
+```
+
+스크립트가 하는 일:
+1. Vivado `bin` 폴더를 사용자 PATH에 등록
+2. `pip install -e .` (필요한 `mcp`, `pywinpty` 자동 설치)
+3. 설치 확인
+4. Claude Code에 `vivado` MCP 서버 등록
+
+`Done.`이 나오면 **3. 동작 확인**으로 넘어가세요.
+
+---
+
+## 2. 수동 설치 (스크립트를 쓰지 않는 경우)
+
+### 2-1. Vivado를 PATH에 등록
+
+```powershell
+$vivadoBin = "C:\AMDDesignTools\2026.1\Vivado\bin"
+$userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+if ($userPath -notlike "*$vivadoBin*") {
+    [Environment]::SetEnvironmentVariable("Path", "$userPath;$vivadoBin", "User")
+}
+```
+
+**PowerShell 창을 닫고 새로 연 뒤** 확인합니다.
+
+```powershell
+vivado -version
+```
+
+버전 정보가 출력되면 성공입니다.
+
+### 2-2. 저장소 받기 & 설치
+
+```powershell
+cd C:\
+git clone https://github.com/binghin2/Vivado_mcp_student.git vivado_mcp
 cd vivado_mcp
 pip install -e .
 ```
 
-**Windows only** — install the ConPTY dependency:
+### 2-3. Vivado 연결 테스트
 
-```bash
-pip install pywinpty
+저장소 폴더 안에서 실행합니다. Vivado가 뜨는 데 수십 초 걸릴 수 있습니다.
+
+```powershell
+python -c "from vivado_session import VivadoSession; s=VivadoSession(); r=s.start(); print(r.success, r.output); print(s.run_tcl('version').output); s.stop()"
 ```
 
-### Configure Claude Code
+`True`와 Vivado 버전이 출력되면 성공입니다.
 
-Add to your Claude Code MCP configuration (`~/.claude/claude_desktop_config.json` or project-level `.mcp.json`).
+### 2-4. Claude Code에 등록
 
-**Linux / macOS:**
+**저장소 폴더 밖**(예: 홈 폴더)으로 이동한 뒤 등록합니다.
 
-```json
-{
-  "mcpServers": {
-    "vivado": {
-      "command": "vivado-mcp"
-    }
-  }
-}
+```powershell
+cd ~
+claude mcp add --scope user vivado -- python -m vivado_mcp
 ```
 
-**Windows:** Vivado must be launched with its full path since the MCP server
-process may not inherit the system PATH. Pass the path to `vivado.bat` when
-calling `start_session`, or add Vivado's `bin` directory to your user PATH
-before starting Claude Code:
+`--scope user`로 등록하면 어느 폴더에서 Claude Code를 켜도 사용할 수 있습니다.
 
-```json
-{
-  "mcpServers": {
-    "vivado": {
-      "command": "python",
-      "args": ["-m", "vivado_mcp"]
-    }
-  }
-}
+---
+
+## 3. 동작 확인
+
+새 PowerShell 창에서:
+
+```powershell
+claude
 ```
 
-Then start the session pointing to the Vivado executable:
+Claude Code 안에서 `/mcp`를 입력하면 `vivado` 서버가 **connected**로 보여야 합니다.
+
+그다음 이렇게 말해 보세요.
 
 ```
-start_session → vivado_path: C:\Xilinx\Vivado\2023.2\bin\vivado.bat
+Vivado 세션 시작하고 버전 알려줘
 ```
 
-## Usage
+---
 
-Once configured, Claude can interact with Vivado through natural language. Example workflow:
-
-1. **Start Vivado session**: "Start a Vivado session"
-2. **Open project**: "Open my project at /path/to/project.xpr"
-3. **Run synthesis**: "Synthesize the design"
-4. **Check timing**: "What's the timing summary? Is timing met?"
-5. **Check utilization**: "Show me the resource utilization"
-6. **Close session**: "Stop the Vivado session"
-
-> **Note for Windows users:** `start_session`, `run_synthesis`, `run_implementation`
-> and `generate_bitstream` run in background threads and return immediately.
-> Use `run_tcl` with `get_property STATUS [get_runs synth_1]` (or `impl_1`) to
-> poll progress while long operations are running.
-
-## Available Tools
-
-### Session Management
-- `start_session` - Start a persistent Vivado TCL session
-- `stop_session` - Stop the Vivado session
-- `session_status` - Get session statistics
-
-### Project Management
-- `open_project` - Open a Vivado project (.xpr)
-- `close_project` - Close the current project
-- `get_project_info` - Get project information (part, directory, etc.)
-
-### Design Flow
-- `run_synthesis` - Run synthesis
-- `run_implementation` - Run place and route
-- `generate_bitstream` - Generate bitstream
-
-### Reports & Analysis
-- `get_timing_summary` - Get timing summary (WNS, TNS, WHS, THS)
-- `get_timing_paths` - Get detailed timing paths for failing/critical paths
-- `get_utilization` - Get resource utilization (LUTs, FFs, BRAMs, DSPs)
-- `get_clocks` - Get clock information
-- `get_messages` - Get synthesis/implementation messages
-
-### Design Queries
-- `get_design_hierarchy` - Get module/instance hierarchy
-- `get_ports` - Get top-level ports
-- `get_nets` - Search for nets
-- `get_cells` - Search for cells/instances
-
-### Simulation
-- `launch_simulation` - Launch behavioral/post-synth/post-impl simulation
-- `run_simulation` - Run simulation for specified time
-- `restart_simulation` - Restart from time 0
-- `close_simulation` - Close the simulator
-- `get_simulation_time` - Get current simulation time
-- `get_signal_value` - Get a signal's current value
-- `get_signal_values` - Get multiple signal values by pattern
-- `add_signals_to_wave` - Add signals to waveform viewer
-- `set_simulation_top` - Set the testbench module
-- `get_simulation_objects` - List signals in a scope
-- `get_scopes` - List hierarchy scopes
-- `step_simulation` - Step simulation
-- `add_breakpoint` - Add signal breakpoint
-- `remove_breakpoints` - Remove all breakpoints
-
-### Advanced
-- `run_tcl` - Execute raw TCL commands
-- `generate_full_report` - Generate full reports to file
-- `read_report_section` - Read portions of large reports
-- `request_feature` - Request new features
-- `list_feature_requests` - List submitted requests
-
-## Architecture
+## 4. 사용 예시
 
 ```
-┌─────────────────┐     MCP Protocol      ┌─────────────────┐
-│   Claude Code   │◄────(JSON-RPC)────────►│  Vivado MCP     │
-│   (AI Client)   │     over stdio        │    Server       │
-└─────────────────┘                       └────────┬────────┘
-                                                   │
-                                          Linux:   │ pexpect.spawn (Unix PTY)
-                                          Windows: │ pywinpty ConPTY
-                                                   │ (TCL commands)
-                                                   ▼
-                                          ┌─────────────────┐
-                                          │ Vivado Process  │
-                                          │  (TCL mode)     │
-                                          └─────────────────┘
+Vivado 세션 시작해줘
+C:\work\lab3\lab3.xpr 프로젝트 열어줘
+합성 돌리고 끝나면 리소스 사용량 보여줘
+구현까지 돌리고 타이밍 만족하는지 확인해줘
+timing violation 나는 경로 상위 5개 보여줘
+비트스트림 생성해줘
+테스트벤치 tb_counter로 behavioral 시뮬레이션 1us 돌리고 count 신호 값 알려줘
+Vivado 세션 종료해줘
 ```
 
-The server maintains a persistent Vivado process in TCL mode. Commands are sent via the process interface and output is captured by waiting for the Vivado prompt (`Vivado%`). This avoids the ~30 second startup overhead that would occur if Vivado were launched for each command.
+**팁**
+- 세션을 한 번 켜 두면 계속 재사용되므로 명령마다 Vivado를 다시 띄우지 않습니다.
+- 합성, 구현, 비트스트림 생성은 백그라운드에서 진행됩니다. "합성 진행 상황 알려줘"라고 물어보면 상태를 확인해 줍니다.
+- 작업이 끝나면 "세션 종료해줘"로 Vivado 프로세스를 닫아 주세요. (메모리 절약)
+- 프로젝트 경로는 공백, 한글이 없는 경로를 권장합니다. (Vivado 자체 제약)
 
-On Linux/macOS `pexpect.spawn` is used. On Windows, Vivado writes its output via `WriteConsole()` which is invisible to standard subprocess pipes; the server instead uses `pywinpty` to create a real Windows ConPTY, which captures all output correctly.
+---
 
-## Recreating This MCP Server with Claude
+## 5. 사용 가능한 기능
 
-This MCP server was created entirely through conversation with Claude. Here's how you can create similar MCP servers:
+| 분류 | 도구 |
+|------|------|
+| 세션 | `start_session`, `stop_session`, `session_status`, `check_session_health` |
+| 프로젝트 | `open_project`, `close_project`, `get_project_info` |
+| 설계 흐름 | `run_synthesis`, `run_implementation`, `generate_bitstream` |
+| 리포트 | `get_timing_summary`, `get_timing_paths`, `get_utilization`, `get_clocks`, `get_messages` |
+| 설계 조회 | `get_design_hierarchy`, `get_ports`, `get_nets`, `get_cells` |
+| 시뮬레이션 | `launch_simulation`, `run_simulation`, `restart_simulation`, `close_simulation`, `step_simulation`, `get_signal_value(s)`, `add_signals_to_wave`, `set_simulation_top`, `get_scopes`, `add_breakpoint` 등 |
+| 고급 | `run_tcl` (임의 TCL 실행), `generate_full_report`, `read_report_section` |
 
-### 1. Start with a Clear Goal
+도구 이름을 외울 필요는 없습니다. 하고 싶은 작업을 말로 요청하면 Claude가 알맞은 도구를 고릅니다.
 
-Tell Claude what you want to build:
-> "I want to create an MCP server that lets you control Vivado FPGA tools. You should be able to start Vivado, open projects, run synthesis, check timing, etc."
+---
 
-### 2. Describe the Architecture
+## 6. 제거
 
-Explain the key technical challenges:
-> "Vivado takes 30 seconds to start, so we need a persistent session. Vivado has a TCL interface we can use. We need to parse Vivado's text output into structured data."
-
-### 3. Iterate on Tools
-
-Start with basic tools and add more:
-1. Session management (start/stop)
-2. Project management
-3. Design flow commands
-4. Reports and queries
-5. Simulation control
-
-### 4. Key Design Patterns Used
-
-**Singleton Session**: Only one Vivado process runs at a time
-```python
-_session: Optional[VivadoSession] = None
-
-def get_session() -> VivadoSession:
-    global _session
-    if _session is None:
-        _session = VivadoSession()
-    return _session
+```powershell
+claude mcp remove --scope user vivado
+pip uninstall vivado-mcp
 ```
 
-**pexpect for Process Management**: Keeps Vivado alive between commands
-```python
-self.child = pexpect.spawn(
-    f'{self.vivado_path} -mode tcl -nojournal -nolog',
-    encoding='utf-8',
-    timeout=self.timeout
-)
-self.child.expect('Vivado%', timeout=10)  # Wait for prompt
-```
-
-**Output Parsing**: Convert text reports to structured JSON
-```python
-def parse_timing_summary(output: str) -> dict:
-    wns_match = re.search(r"WNS\(ns\)\s*:\s*([-\d.]+)", output)
-    if wns_match:
-        result["wns"] = float(wns_match.group(1))
-```
-
-**Response Truncation**: Handle large outputs gracefully
-```python
-def truncate_response(content: str, max_chars: int) -> dict:
-    if len(content) > max_chars:
-        return {"content": content[:max_chars], "truncated": True}
-```
-
-### 5. MCP Server Structure
-
-Every MCP server needs:
-
-```python
-from mcp.server import Server
-from mcp.server.stdio import stdio_server
-from mcp.types import Tool, TextContent
-
-server = Server("your-server-name")
-
-@server.list_tools()
-async def list_tools() -> list[Tool]:
-    return [Tool(name="...", description="...", inputSchema={...})]
-
-@server.call_tool()
-async def call_tool(name: str, arguments: dict) -> list[TextContent]:
-    # Handle tool calls
-    return [TextContent(type="text", text=json.dumps(result))]
-
-async def main():
-    async with stdio_server() as (read_stream, write_stream):
-        await server.run(read_stream, write_stream,
-                        server.create_initialization_options())
-```
-
-### 6. Prompt for Creating Your Own MCP Server
-
-Use this prompt template with Claude:
-
-```
-I want to create an MCP server for [YOUR TOOL].
-
-Background:
-- [Tool] is a [description] that [what it does]
-- It has a [CLI/API/etc] interface that accepts [commands/requests]
-- Key operations I want to support: [list operations]
-
-Technical considerations:
-- [Startup time, persistent state, output formats, etc.]
-
-Please help me create an MCP server with:
-1. Session/connection management
-2. Core operations as tools
-3. Proper error handling
-4. Structured JSON responses
-5. Comprehensive code comments
-
-Start with the basic structure and we'll iterate from there.
-```
-
-## Contributing
-
-Contributions welcome! Please feel free to submit issues and pull requests.
+---
 
 ## License
 
-MIT License - see LICENSE file for details.
-
-## Acknowledgments
-
-- Created with [Claude](https://claude.ai) (Anthropic)
-- Uses the [Model Context Protocol](https://modelcontextprotocol.io) specification
-- Integrates with [AMD/Xilinx Vivado](https://www.xilinx.com/products/design-tools/vivado.html)
+MIT License. [LICENSE](LICENSE) 참고.

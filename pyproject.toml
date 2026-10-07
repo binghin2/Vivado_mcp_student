@@ -24,8 +24,9 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Electronic Design Automation (EDA)",
 ]
 dependencies = [
-    "mcp>=1.0.0",
+    "mcp>=1.0,<2",
     "pexpect>=4.8.0",
+    "pywinpty>=2.0; sys_platform == 'win32'",
 ]
 
 [project.scripts]
